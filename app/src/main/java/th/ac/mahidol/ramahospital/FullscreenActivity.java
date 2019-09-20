@@ -64,6 +64,7 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
 
     private Timer timer;
     private TCPServerThread thread;
+    private volatile boolean isPlayedComplete = true;
     private JcPlayerView player;
     private ConcurrentLinkedQueue<String> queue;
 
@@ -78,6 +79,46 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
         settingButton = findViewById(R.id.imageButton);
         textView = findViewById(R.id.textView);
         player = findViewById(R.id.jcplayer);
+        player.setJcPlayerManagerListener(new JcPlayerManagerListener() {
+            @Override
+            public void onPreparedAudio(@NotNull JcStatus jcStatus) {
+                isPlayedComplete = false;
+            }
+
+            @Override
+            public void onCompletedAudio() {
+                isPlayedComplete = true;
+            }
+
+            @Override
+            public void onPaused(@NotNull JcStatus jcStatus) {
+                isPlayedComplete = true;
+            }
+
+            @Override
+            public void onContinueAudio(@NotNull JcStatus jcStatus) {
+                isPlayedComplete = true;
+            }
+
+            @Override
+            public void onPlaying(@NotNull JcStatus jcStatus) {
+                isPlayedComplete = false;
+            }
+
+            @Override
+            public void onTimeChanged(@NotNull JcStatus jcStatus) {
+            }
+
+            @Override
+            public void onStopped(@NotNull JcStatus jcStatus) {
+                isPlayedComplete = true;
+            }
+
+            @Override
+            public void onJcpError(@NotNull Throwable throwable) {
+                isPlayedComplete = true;
+            }
+        });
 
         actionButton.setOnClickListener(this);
 
@@ -206,10 +247,15 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
                     Log.e("play-sound", code);
                     if (soundMap.containsKey(code)) {
                         Uri uri = soundMap.get(code);
-                        if (player != null && player.isPlaying()) {
-                            player.pause();
+                        if (player != null) {
+                            if (!player.isPlaying() || player.isPaused() || isPlayedComplete) {
+                                isPlayedComplete = false;
+                                player.playAudio(JcAudio.createFromFilePath(code, RealPathUtils.getRealPath(getApplicationContext(), uri)));
+                            }
                         }
-                        player.playAudio(JcAudio.createFromFilePath(code, RealPathUtils.getRealPath(getApplicationContext(), uri)));
+                    } else if (code.equalsIgnoreCase("end")) {
+                        player.pause();
+                        isPlayedComplete = true;
                     }
                 } catch (Exception ignored) {}
             }

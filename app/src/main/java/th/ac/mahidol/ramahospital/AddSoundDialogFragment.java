@@ -120,7 +120,7 @@ public class AddSoundDialogFragment extends DialogFragment implements View.OnCli
     public void onClick(View view) {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("audio/*");
+        i.setType("*/*");
         this.startActivityForResult(Intent.createChooser(i, "Sound Browser"), AddSoundDialogFragment.FILECHOOSER_RESULTCODE);
     }
 
