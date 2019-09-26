@@ -4,10 +4,14 @@
     <string name="text_stop_state">\nTAP TO START\n</string>
     <string name="text_setting">Setting</string>
     <string name="text_code">Code</string>
+    <string name="text_sound">Sound</string>
     <string name="text_sound_file">Sound file</string>
     <string name="text_not_found">Not found</string>
     <string name="text_add">ADD</string>
 
+    <string name="text_choose_file">Choose Sound</string>
+    <string name="text_record">Record</string>
+    <string name="text_ex_code">Ex. a, code1, sound1</string>
     <string name="play_button_description">Run the sound server</string>
     <string name="setting_button_description">Go to setting</string>
     <string name="back_button_description">Back to main page</string>

@@ -1,0 +1,19 @@
+<resources>
+    <string name="app_name" translatable="false">AndroidAudioRecorder</string>
+    <string name="aar_save">Save</string>
+    <string name="aar_paused">Paused</string>
+    <string name="aar_recording">Recording</string>
+    <string name="aar_playing">Playing</string>
+
+    <string name="error_unknown">Unexpected error</string>
+    <string name="error_cant_create_file">Can\'t create file</string>
+    <string name="error_invalid_output_file">Invalid output file</string>
+    <string name="error_file_exists">File with this name is already exists!</string>
+    <string name="error_failed_to_rename">Failed to rename record!</string>
+    <string name="error_failed_to_init_recorder">Failed to init Recorder</string>
+    <string name="error_failed_to_init_player">Failed to init Player</string>
+    <string name="error_player_data_source">Player can\'t read file</string>
+    <string name="error_unable_to_read_sound_file">Unable to read sound file</string>
+    <string name="error_permission_denied">Permission denied</string>
+    <string name="error_process_waveform">Can\'t draw waveform</string>
+</resources>

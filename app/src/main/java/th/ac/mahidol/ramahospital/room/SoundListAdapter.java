@@ -2,7 +2,6 @@ package th.ac.mahidol.ramahospital.room;
 
 import android.content.Context;
 import android.net.Uri;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -76,7 +75,6 @@ public class SoundListAdapter extends RecyclerView.Adapter<SoundListAdapter.Soun
                 Uri uri = Uri.parse(sound.uri);
                 String path = RealPathUtils.getRealPath(mContext, uri);
 
-                Log.e("realpath", path);
                 Toast.makeText(mContext, String.format("Play sound: %s", path), Toast.LENGTH_LONG).show();
 
                 if (player != null && player.isPlaying()) {

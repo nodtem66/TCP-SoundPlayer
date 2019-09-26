@@ -27,6 +27,7 @@ import com.example.jean.jcplayer.view.JcPlayerView;
 
 import org.jetbrains.annotations.NotNull;
 
+import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.Inet4Address;
@@ -44,11 +45,11 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 import th.ac.mahidol.ramahospital.room.Sound;
 import th.ac.mahidol.ramahospital.room.SoundViewModel;
-import th.ac.mahidol.ramahospital.service.WifiApControl;
 import th.ac.mahidol.ramahospital.thread.TCPServerThread;
 import th.ac.mahidol.ramahospital.utils.RealPathUtils;
+import timber.log.Timber;
 
-public class FullscreenActivity extends AppCompatActivity implements View.OnClickListener {
+public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
     public static final int STATE_STOP = 0;
     public static final int STATE_START = 1;
@@ -58,6 +59,7 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
     private ImageButton actionButton;
     private ImageButton settingButton;
     private TextView textView;
+    private TextView textView2;
 
     private int state = STATE_STOP;
     private Map<String, Uri> soundMap;
@@ -72,13 +74,16 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getSupportActionBar().hide();
-        setContentView(R.layout.activity_fullscreen);
+        //getSupportActionBar().hide();
+        setContentView(R.layout.activity_main);
 
         actionButton = findViewById(R.id.imageButton2);
         settingButton = findViewById(R.id.imageButton);
         textView = findViewById(R.id.textView);
+        textView2 = findViewById(R.id.textView3);
         player = findViewById(R.id.jcplayer);
+
+        textView2.setVisibility(View.GONE);
         player.setJcPlayerManagerListener(new JcPlayerManagerListener() {
             @Override
             public void onPreparedAudio(@NotNull JcStatus jcStatus) {
@@ -125,6 +130,7 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
         queue = new ConcurrentLinkedQueue<>();
         soundMap = new HashMap<>();
 
+        createSoundFolder();
         requestMyPermission();
         querySoundsFromDatabase();
     }
@@ -139,7 +145,7 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
                     stopServer();
                 }
                 break;
-            case R.id.textView:
+            case R.id.textView3:
                 if (state == STATE_START) {
                     Intent intent = new Intent(Intent.ACTION_MAIN);
                     intent.addCategory(Intent.CATEGORY_LAUNCHER);
@@ -168,10 +174,6 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
      * Run on click the green play button
      */
     private void startServer() {
-        if (!WifiApControl.isSupported()) {
-            Toast.makeText(this, "Error: Not support for Access Point", Toast.LENGTH_LONG).show();
-            return;
-        }
         if (soundMap.isEmpty()) {
             Toast.makeText(this, "Empty sound. You need to go 'Setting' and add a sound.", Toast.LENGTH_LONG).show();
             return;
@@ -191,7 +193,9 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
                 thread.interrupt();
                 thread.join();
                 thread = null;
-            } catch (Exception ignored) {Log.e("cardioart", ignored.toString());}
+            } catch (Exception ignored) {
+                Timber.tag("tcp-server-error").e(ignored.toString());
+            }
         }
         if (timer != null) {
             timer.cancel();
@@ -201,7 +205,8 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
         state = STATE_STOP;
         actionButton.setImageResource(R.drawable.ic_btn1);
         textView.setText("\nTAP TO START\n");
-        textView.setOnClickListener(null);
+        textView2.setOnClickListener(null);
+        textView2.setVisibility(View.GONE);
     }
 
     /**
@@ -210,19 +215,23 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
     private void setupWifi() {
         WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         if (invokeHiddenMethod(wifiManager, "isWifiApEnabled", Boolean.class)) {
-            textView.setText(String.format(
+            textView.setText("\n\n");
+            textView2.setText(String.format(
                     "IP: %s\nPort: 8000",
                     getLocalIpAddress()
 
             ));
-            textView.setOnClickListener(this);
+            textView2.setOnClickListener(this);
+            textView2.setVisibility(View.VISIBLE);
             if (thread != null) {
                 try {
                     thread.stopServer();
                     thread.interrupt();
                     thread.join();
                     thread = null;
-                } catch (Exception ignored) {Log.e("cardioart", ignored.toString());}
+                } catch (Exception ignored) {
+                    Timber.tag("tcp-server-error").e(ignored.toString());
+                }
             }
             thread = new TCPServerThread(queue);
             thread.setDaemon(true);
@@ -244,7 +253,6 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
             public void run() {
                 try {
                     final String code = queue.poll();
-                    Log.e("play-sound", code);
                     if (soundMap.containsKey(code)) {
                         Uri uri = soundMap.get(code);
                         if (player != null) {
@@ -269,6 +277,8 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
         List<String> permissions = new ArrayList<>();
         String[] targetPermissions = new String[] {
                 Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                Manifest.permission.RECORD_AUDIO,
                 Manifest.permission.MEDIA_CONTENT_CONTROL,
                 Manifest.permission.WAKE_LOCK,
                 Manifest.permission.ACCESS_WIFI_STATE,
@@ -282,6 +292,16 @@ public class FullscreenActivity extends AppCompatActivity implements View.OnClic
         }
         if (!permissions.isEmpty()) {
             ActivityCompat.requestPermissions(this, permissions.toArray(new String[0]), REQUEST_PERMISSION);
+        }
+    }
+
+    private void createSoundFolder() {
+        String dirPath = getExternalFilesDir(null) + File.separator + "sounds";
+        File dir = new File(dirPath);
+        if (!dir.exists()) {
+            if (!dir.mkdirs()) {
+                Toast.makeText(this, "Cannot create sound directory", Toast.LENGTH_LONG).show();
+            }
         }
     }
 

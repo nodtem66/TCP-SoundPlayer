@@ -1,5 +1,6 @@
 package th.ac.mahidol.ramahospital;
 
+import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.Context;
@@ -8,24 +9,31 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Bundle;
+import android.provider.OpenableColumns;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.widget.Button;
+import android.widget.EditText;
+import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.core.app.BundleCompat;
 import androidx.fragment.app.DialogFragment;
 import androidx.fragment.app.Fragment;
 
-import android.provider.MediaStore;
-import android.provider.OpenableColumns;
-import android.util.Log;
-import android.view.LayoutInflater;
-import android.view.View;
-import android.view.ViewGroup;
-import android.widget.Button;
-import android.widget.EditText;
-import android.widget.Toast;
+import com.nononsenseapps.filepicker.FilePickerActivity;
 
-import java.util.logging.Logger;
+import java.io.File;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.URLDecoder;
+
+import cafe.adriel.androidaudiorecorder.AndroidAudioRecorder;
+import cafe.adriel.androidaudiorecorder.model.AudioChannel;
+import cafe.adriel.androidaudiorecorder.model.AudioSampleRate;
+import cafe.adriel.androidaudiorecorder.model.AudioSource;
+import timber.log.Timber;
 
 
 /**
@@ -43,10 +51,12 @@ public class AddSoundDialogFragment extends DialogFragment implements View.OnCli
     public static final String PARAM_PATH = "path";
     public static final String PARAM_FILENAME = "filename";
 
-    private static final int FILECHOOSER_RESULTCODE=1;
+    private static final int FILECHOOSER_RESULTCODE = 1;
+    private static final int RECORDER_RESULTCODE = 2;
 
     private OnFragmentInteractionListener mListener;
     private View view;
+    private TextView soundUriView;
     private Uri uri;
     private String filename;
 
@@ -54,11 +64,8 @@ public class AddSoundDialogFragment extends DialogFragment implements View.OnCli
         // Required empty public constructor
     }
 
-    public static AddSoundDialogFragment newInstance(String code, String sound) {
+    public static AddSoundDialogFragment newInstance() {
         AddSoundDialogFragment fragment = new AddSoundDialogFragment();
-        //Bundle args = new Bundle();
-        //args.putString(ARG_CODE, param1);
-        //fragment.setArguments(args);
         return fragment;
     }
 
@@ -108,20 +115,45 @@ public class AddSoundDialogFragment extends DialogFragment implements View.OnCli
         if (requestCode == FILECHOOSER_RESULTCODE) {
             if (data != null) {
                 uri = data.getData();
-                getContext().getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
                 filename = getFileName(uri);
-                Button button = view.findViewById(R.id.button2);
-                button.setText(filename);
+                soundUriView.setText(filename);
+            }
+        } else if (requestCode == RECORDER_RESULTCODE) {
+            if (resultCode == Activity.RESULT_OK) {
+                soundUriView.setText(filename);
+            } else {
+                soundUriView.setText("Not found");
+                filename = "";
+                uri = null;
             }
         }
     }
 
     @Override
     public void onClick(View view) {
-        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType("*/*");
-        this.startActivityForResult(Intent.createChooser(i, "Sound Browser"), AddSoundDialogFragment.FILECHOOSER_RESULTCODE);
+        if (view.getId() == R.id.button2) {
+            File file = new File(requireContext().getExternalFilesDir(null) + File.separator + "sounds");
+            Intent i = new Intent(requireContext(), FilePickerActivity.class);
+            i.putExtra(FilePickerActivity.EXTRA_ALLOW_MULTIPLE, false);
+            i.putExtra(FilePickerActivity.EXTRA_ALLOW_CREATE_DIR, false);
+            i.putExtra(FilePickerActivity.EXTRA_MODE, FilePickerActivity.MODE_FILE);
+            i.putExtra(FilePickerActivity.EXTRA_START_PATH, file.getPath());
+            startActivityForResult(i, AddSoundDialogFragment.FILECHOOSER_RESULTCODE);
+        } else if (view.getId() == R.id.button3) {
+            filename = (System.currentTimeMillis()/1000) + ".m4a";
+            String filePath = requireContext().getExternalFilesDir(null) + File.separator + "sounds" + File.separator + filename;
+            createFile(filePath);
+            uri = Uri.fromFile(new File(filePath));
+            AndroidAudioRecorder.with(this)
+                    .setFilePath(filePath)
+                    .setColor(getResources().getColor(R.color.colorAccent))
+                    .setRequestCode(AddSoundDialogFragment.RECORDER_RESULTCODE)
+                    .setSource(AudioSource.MIC)
+                    .setChannel(AudioChannel.STEREO)
+                    .setSampleRate(AudioSampleRate.HZ_8000)
+                    .setKeepDisplayOn(true)
+                    .recordFromFragment();
+        }
     }
 
     public interface OnFragmentInteractionListener {
@@ -132,11 +164,13 @@ public class AddSoundDialogFragment extends DialogFragment implements View.OnCli
         this.view = view;
         Button button = view.findViewById(R.id.button2);
         button.setOnClickListener(this);
+        button = view.findViewById(R.id.button3);
+        button.setOnClickListener(this);
+        soundUriView = view.findViewById(R.id.sound_uri);
     }
 
     private String getFileName(Uri uri) {
         String result = uri.toString();
-        Log.e("cardioart", result);
         // Query real name from media database
         if (uri.getScheme().equals("content")) {
             Cursor cursor = requireContext().getContentResolver().query(uri, new String[] {OpenableColumns.DISPLAY_NAME}, null, null, null);
@@ -158,7 +192,34 @@ public class AddSoundDialogFragment extends DialogFragment implements View.OnCli
                 result = result.substring(cut+1);
             }
         }
+
+        try {
+            result = URLDecoder.decode(result, "utf-8");
+        } catch (UnsupportedEncodingException ignored) {}
         return result;
+    }
+
+    private void createFile(String filePath) {
+        if (filePath != null) {
+            File file = new File(filePath);
+            if (!file.exists()) {
+                try {
+                    if (file.createNewFile()) {
+                        Timber.tag("create-file").d("The file was successfully created: %s", filePath);
+                    } else {
+                        Timber.tag("create-file").d("The file exists: %s", filePath);
+                    }
+                } catch (IOException e) {
+                    Timber.tag("create-file").e("Failed to create file: %s", filePath);
+                    Timber.tag("create-file").e(e);
+                }
+            } else {
+                Timber.tag("create-file").e("Duplicate file: %s", filePath);
+            }
+            if (!file.canWrite()) {
+                Timber.tag("create-file").e("Unwritable file: %s", filePath);
+            }
+        }
     }
 
     private void sendBundle() {
