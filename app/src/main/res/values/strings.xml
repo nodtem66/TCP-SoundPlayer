@@ -8,6 +8,7 @@
     <string name="text_sound_file">Sound file</string>
     <string name="text_not_found">Not found</string>
     <string name="text_add">ADD</string>
+    <string name="text_status">Status: </string>
 
     <string name="text_choose_file">Choose Sound</string>
     <string name="text_record">Record</string>

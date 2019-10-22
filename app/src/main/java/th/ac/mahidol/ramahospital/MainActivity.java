@@ -8,10 +8,13 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
+import android.view.WindowManager;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -39,6 +42,7 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -58,32 +62,55 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
 
     private ImageButton actionButton;
     private ImageButton settingButton;
+    private ImageView imageStatus;
     private TextView textView;
     private TextView textView2;
 
     private int state = STATE_STOP;
+    private Integer numberOfAcceptRequest = 0;
     private Map<String, Uri> soundMap;
 
     private Timer timer;
+    private Timer timer2;
     private TCPServerThread thread;
     private volatile boolean isPlayedComplete = true;
     private JcPlayerView player;
     private ConcurrentLinkedQueue<String> queue;
+    private Queue<Integer> acceptQueue;
+
+    private PowerManager.WakeLock wakeLock;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        //getSupportActionBar().hide();
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         setContentView(R.layout.activity_main);
 
         actionButton = findViewById(R.id.imageButton2);
         settingButton = findViewById(R.id.imageButton);
+        imageStatus = findViewById(R.id.imageLEDStatus);
         textView = findViewById(R.id.textView);
         textView2 = findViewById(R.id.textView3);
         player = findViewById(R.id.jcplayer);
 
         textView2.setVisibility(View.GONE);
+
+        actionButton.setOnClickListener(this);
+
+        queue = new ConcurrentLinkedQueue<>();
+        acceptQueue = new ConcurrentLinkedQueue<>();
+        soundMap = new HashMap<>();
+
+        createSoundFolder();
+        requestMyPermission();
+        querySoundsFromDatabase();
+
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+                "Ramahospital::Sound-player");
+        wakeLock.acquire();
+
         player.setJcPlayerManagerListener(new JcPlayerManagerListener() {
             @Override
             public void onPreparedAudio(@NotNull JcStatus jcStatus) {
@@ -124,16 +151,29 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 isPlayedComplete = true;
             }
         });
-
-        actionButton.setOnClickListener(this);
-
-        queue = new ConcurrentLinkedQueue<>();
-        soundMap = new HashMap<>();
-
-        createSoundFolder();
-        requestMyPermission();
-        querySoundsFromDatabase();
     }
+
+    @Override
+    protected void onDestroy() {
+        if (wakeLock != null) {
+            wakeLock.release();
+        }
+        if (player != null) {
+            player.kill();
+        }
+        queue.clear();
+        acceptQueue.clear();
+        if (timer != null)
+            timer.cancel();
+        if (timer2 != null)
+            timer2.cancel();
+        if (thread != null && state == STATE_START) {
+            thread.stopServer();
+            thread.interrupt();
+        }
+        super.onDestroy();
+    }
+
 
     @Override
     public void onClick(View view) {
@@ -155,14 +195,6 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                 }
                 break;
         }
-    }
-
-    @Override
-    protected void onDestroy() {
-        if (player != null) {
-            player.kill();
-        }
-        super.onDestroy();
     }
 
     public void onSettingButtonClicked(View view) {
@@ -187,21 +219,27 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
      */
     private void stopServer() {
         Toast.makeText(this, "Stop Wifi server", Toast.LENGTH_SHORT).show();
+        if (timer != null) {
+            timer.cancel();
+            timer = null;
+        }
+        if (timer2 != null) {
+            timer2.cancel();
+            timer2 = null;
+        }
         if (thread != null) {
             try {
-                thread.stopServer();
                 thread.interrupt();
+                thread.stopServer();
+                Timber.tag("TCP-Server").d("wait for join");
                 thread.join();
                 thread = null;
             } catch (Exception ignored) {
                 Timber.tag("tcp-server-error").e(ignored.toString());
             }
         }
-        if (timer != null) {
-            timer.cancel();
-            timer = null;
-        }
         queue.clear();
+        acceptQueue.clear();
         state = STATE_STOP;
         actionButton.setImageResource(R.drawable.ic_btn1);
         textView.setText("\nTAP TO START\n");
@@ -233,8 +271,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     Timber.tag("tcp-server-error").e(ignored.toString());
                 }
             }
-            thread = new TCPServerThread(queue);
-            thread.setDaemon(true);
+            thread = new TCPServerThread(queue, acceptQueue);
+            thread.setDaemon(false);
             thread.start();
             state = STATE_START;
             actionButton.setImageResource(R.drawable.ic_btn2);
@@ -247,7 +285,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
      * Construct and run timer to read code from queue and start sound-player service
      */
     private void runTimer() {
-        timer = new Timer(true);
+        timer = new Timer(false);
         timer.schedule(new TimerTask() {
             @Override
             public void run() {
@@ -256,8 +294,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     if (soundMap.containsKey(code)) {
                         Uri uri = soundMap.get(code);
                         if (player != null) {
-                            if (!player.isPlaying() || player.isPaused() || isPlayedComplete) {
+                            if (isPlayedComplete) {
                                 isPlayedComplete = false;
+                                player.pause();
                                 player.playAudio(JcAudio.createFromFilePath(code, RealPathUtils.getRealPath(getApplicationContext(), uri)));
                             }
                         }
@@ -267,7 +306,22 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     }
                 } catch (Exception ignored) {}
             }
-        }, 100, 300);
+        }, 100, 20);
+
+        timer2 = new Timer(false);
+        timer2.schedule(new TimerTask() {
+            @Override
+            public void run() {
+                try {
+                    final Integer i = acceptQueue.poll();
+                    acceptQueue.clear();
+                    if (i != null) {
+                        numberOfAcceptRequest += i;
+                        runOnUiThread(() -> imageStatus.setImageAlpha(((numberOfAcceptRequest % 4) + 1) * 50 + 55));
+                    }
+                } catch (Exception ignored) {}
+            }
+        }, 200, 150);
     }
 
     /**
